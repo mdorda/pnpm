@@ -287,6 +287,42 @@ fn reinstall_from_warm_global_virtual_store_after_deleting_node_modules() {
     drop((root, mock_instance));
 }
 
+/// A global-virtual-store slot is filled in place, so an interrupted
+/// import leaves a directory holding only part of the package. The
+/// completion marker (`package.json`, written last) is what tells the
+/// two apart, and a reinstall has to repair a slot that lacks it rather
+/// than accept the directory as already materialized.
+#[test]
+fn a_slot_left_incomplete_by_an_interrupted_import_is_repaired() {
+    let CommandTempCwd { root, workspace, npmrc_info, .. } =
+        CommandTempCwd::init().add_mocked_registry();
+    let AddMockedRegistry { store_dir, mock_instance, .. } = npmrc_info;
+
+    set_gvs_workspace_yaml(&workspace, "");
+    write_manifest(&workspace, &serde_json::json!({ "@pnpm.e2e/pkg-with-1-dep": "100.0.0" }));
+
+    pacquet(&workspace).with_arg("install").assert().success();
+
+    let version_dir = pkg_version_dir(&store_dir, "@pnpm.e2e/pkg-with-1-dep", "100.0.0");
+    let pkg = pkg_in_slot(&sole_hash_dir(&version_dir), "@pnpm.e2e/pkg-with-1-dep");
+    let marker = pkg.join("package.json");
+    let pristine_marker = fs::read_to_string(&marker).expect("read the completion marker");
+
+    eprintln!("Simulating an import that died before writing the marker...");
+    fs::remove_file(&marker).expect("remove the completion marker");
+    fs::remove_dir_all(workspace.join("node_modules")).expect("remove node_modules");
+
+    pacquet(&workspace).with_args(["install", "--frozen-lockfile"]).assert().success();
+
+    assert_eq!(
+        fs::read_to_string(&marker).expect("read the repaired marker"),
+        pristine_marker,
+        "the reinstall must finish the interrupted import at {marker:?}",
+    );
+
+    drop((root, mock_instance));
+}
+
 #[test]
 fn concurrent_installs_sharing_a_gvs_do_not_fail_while_linking_bins() {
     const WORKERS: usize = 8;
