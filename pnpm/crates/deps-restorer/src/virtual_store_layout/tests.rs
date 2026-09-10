@@ -1167,3 +1167,111 @@ fn registry_metadata(lead: &str) -> PackageMetadata {
         peer_dependencies_meta: None,
     }
 }
+
+/// The cached suffix map decides where every package in the store
+/// lives, so a lockfile edit must never be served the previous run's
+/// map. Filesystem metadata cannot see such an edit on its own: a
+/// same-length in-place rewrite inside one mtime tick keeps `len`,
+/// `mtime` and `inode` identical.
+#[test]
+fn layout_cache_fingerprint_tracks_lockfile_content() {
+    let dir = tempfile::tempdir().expect("create lockfile dir");
+    let lockfile = dir.path().join("pnpm-lock.yaml");
+    std::fs::write(&lockfile, "lockfileVersion: '11.0'\n").expect("write lockfile");
+    let inputs = super::gvs_layout_cache::Inputs {
+        lockfile_dir: Some(dir.path()),
+        snapshots: None,
+        engine: Some("engine"),
+        allow_build_policy: None,
+    };
+    let before = super::gvs_layout_cache::fingerprint(inputs).expect("fingerprint the lockfile");
+
+    std::fs::write(&lockfile, "lockfileVersion: '11.1'\n").expect("rewrite lockfile");
+    let after =
+        super::gvs_layout_cache::fingerprint(inputs).expect("fingerprint the rewritten lockfile");
+
+    assert_eq!(
+        std::fs::metadata(&lockfile).expect("stat lockfile").len(),
+        24,
+        "the rewrite must keep the file length, or the test proves nothing",
+    );
+    assert_ne!(before, after, "a lockfile edit must retire the cached layout");
+
+    std::fs::write(&lockfile, "lockfileVersion: '11.0'\n").expect("restore lockfile");
+    assert_eq!(
+        super::gvs_layout_cache::fingerprint(inputs),
+        Some(before),
+        "identical content must fingerprint identically however the file got there, \
+         so a fresh checkout hits the cache instead of re-deriving",
+    );
+}
+
+/// The engine string and the allow-build policy both change which
+/// snapshots carry the engine in their hash, so a map derived under one
+/// must never be served to an install running the other.
+#[test]
+fn layout_cache_fingerprint_tracks_the_engine_and_the_allow_build_policy() {
+    let dir = tempfile::tempdir().expect("create lockfile dir");
+    std::fs::write(dir.path().join("pnpm-lock.yaml"), "lockfileVersion: '11.0'\n")
+        .expect("write lockfile");
+    let fingerprint = |engine, allow_build_policy| {
+        super::gvs_layout_cache::fingerprint(super::gvs_layout_cache::Inputs {
+            lockfile_dir: Some(dir.path()),
+            snapshots: None,
+            engine,
+            allow_build_policy,
+        })
+        .expect("fingerprint the lockfile")
+    };
+    let allows_one =
+        crate::AllowBuildPolicy::new(HashSet::from(["esbuild".to_string()]), HashSet::new(), false);
+    let allows_another =
+        crate::AllowBuildPolicy::new(HashSet::from(["sharp".to_string()]), HashSet::new(), false);
+
+    let baseline = fingerprint(Some("linux;x64;22"), Some(&allows_one));
+    assert_ne!(
+        baseline,
+        fingerprint(Some("linux;x64;24"), Some(&allows_one)),
+        "a different node major must retire the cached layout",
+    );
+    assert_ne!(
+        baseline,
+        fingerprint(Some("linux;x64;22"), Some(&allows_another)),
+        "a different allowBuilds set must retire the cached layout",
+    );
+    assert_ne!(
+        baseline,
+        fingerprint(Some("linux;x64;22"), None),
+        "dropping the policy must retire the cached layout",
+    );
+    assert_eq!(
+        baseline,
+        fingerprint(Some("linux;x64;22"), Some(&allows_one)),
+        "the same inputs must fingerprint identically",
+    );
+}
+
+#[test]
+fn layout_cache_round_trips_the_suffix_map() {
+    let cache_dir = tempfile::tempdir().expect("create cache dir");
+    let suffixes = HashMap::from([
+        (
+            "@scope/foo@1.2.3".parse::<PackageKey>().expect("parse key"),
+            "@scope/foo/1.2.3/deadbeef".to_string(),
+        ),
+        ("bar@4.5.6".parse::<PackageKey>().expect("parse key"), "@/bar/4.5.6/cafebabe".to_string()),
+    ]);
+
+    super::gvs_layout_cache::store(cache_dir.path(), "key", &suffixes);
+
+    assert_eq!(
+        super::gvs_layout_cache::load(cache_dir.path(), "key"),
+        Some(suffixes),
+        "a stored map must load back unchanged",
+    );
+    assert_eq!(
+        super::gvs_layout_cache::load(cache_dir.path(), "other-key"),
+        None,
+        "an unknown key must miss rather than return another key's map",
+    );
+}
