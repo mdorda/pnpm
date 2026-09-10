@@ -379,6 +379,7 @@ fn write_project_links<Reporter: self::Reporter>(
         .unwrap_or_else(HoistLinks::none);
     tracing::info!(target: "pacquet::install::phase", phase = "link.write_hoist_links", elapsed_ms = phase_start.elapsed().as_millis() as u64, "phase complete");
 
+    let phase_start = std::time::Instant::now();
     if crate::should_write_package_map(config, inputs.ctx.node_linker) {
         crate::package_map::write_package_map(
             inputs.sidecar_lockfile,
@@ -392,6 +393,12 @@ fn write_project_links<Reporter: self::Reporter>(
         )
         .map_err(LinkPhaseError::WritePackageMap)?;
     }
+    tracing::info!(
+        target: "pacquet::install::phase",
+        phase = "link.package_map",
+        elapsed_ms = phase_start.elapsed().as_millis() as u64,
+        "phase complete",
+    );
     if matches!(inputs.ctx.node_linker, NodeLinker::Pnp) {
         crate::write_pnp_file(
             inputs.sidecar_lockfile,

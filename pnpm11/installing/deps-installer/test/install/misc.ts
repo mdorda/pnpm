@@ -58,7 +58,7 @@ test.skip('ignoring some files in the dependency', async () => {
 test('writes a package map for Node.js package-map resolution', async () => {
   const project = prepareEmpty()
 
-  const { updatedManifest: manifest } = await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({ fastUnpack: false }))
+  const { updatedManifest: manifest } = await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({ fastUnpack: false, nodeExperimentalPackageMap: true }))
 
   const packageMap = JSON.parse(fs.readFileSync(path.resolve('node_modules/.package-map.json'), 'utf8'))
   const rootDependencyId = packageMap.packages['.'].dependencies['@pnpm.e2e/pkg-with-1-dep']
@@ -73,8 +73,16 @@ test('writes a package map for Node.js package-map resolution', async () => {
   project.has('.package-map.json')
 
   fs.rmSync(path.resolve('node_modules/.package-map.json'))
-  await install(manifest, testDefaults({ fastUnpack: false, frozenLockfile: true }))
+  await install(manifest, testDefaults({ fastUnpack: false, frozenLockfile: true, nodeExperimentalPackageMap: true }))
   project.has('.package-map.json')
+})
+
+test('does not write a package map unless nodeExperimentalPackageMap is set', async () => {
+  const project = prepareEmpty()
+
+  await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({ fastUnpack: false }))
+
+  project.hasNot('.package-map.json')
 })
 
 test('writes a package map that resolves against the global virtual store layout', async () => {
@@ -83,6 +91,7 @@ test('writes a package map that resolves against the global virtual store layout
 
   const { updatedManifest: manifest } = await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     enableGlobalVirtualStore: true,
     virtualStoreDir: globalVirtualStoreDir,
   }))
@@ -102,6 +111,7 @@ test('writes a package map that resolves against the global virtual store layout
   rimrafSync('node_modules')
   await install(manifest, testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     enableGlobalVirtualStore: true,
     virtualStoreDir: globalVirtualStoreDir,
     frozenLockfile: true,
@@ -117,6 +127,7 @@ test('writes a loose package map for Node.js package-map resolution', async () =
     '@pnpm.e2e/pkg-with-1-dep@100.0.0',
   ], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     nodePackageMapType: 'loose',
   }))
 
@@ -133,6 +144,7 @@ test('writes a package map for hoisted node linker from the real layout', async 
 
   await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     nodeLinker: 'hoisted',
   }))
 
@@ -157,6 +169,7 @@ test('writes a loose package map for hoisted node linker', async () => {
     '@pnpm.e2e/pkg-with-1-dep@100.0.0',
   ], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     nodeLinker: 'hoisted',
     nodePackageMapType: 'loose',
   }))
@@ -251,7 +264,7 @@ test('does not write or inject a package map when modules directory creation is 
 testOnNode27Plus('package map can resolve package dependencies at runtime with Node.js', async () => {
   prepareEmpty()
 
-  await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({ fastUnpack: false }))
+  await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({ fastUnpack: false, nodeExperimentalPackageMap: true }))
 
   const packageMap = JSON.parse(fs.readFileSync(path.resolve('node_modules/.package-map.json'), 'utf8'))
   const rootDependencyId = packageMap.packages['.'].dependencies['@pnpm.e2e/pkg-with-1-dep']
@@ -287,6 +300,7 @@ testOnNode27Plus('hoisted package map can resolve package dependencies at runtim
 
   await addDependenciesToPackage({}, ['@pnpm.e2e/pkg-with-1-dep@100.0.0'], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     nodeLinker: 'hoisted',
   }))
 
@@ -325,6 +339,7 @@ testOnNode27Plus('hoisted package map blocks undeclared hoisted dependencies at 
     '@pnpm.e2e/pkg-with-1-dep@100.0.0',
   ], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     nodeLinker: 'hoisted',
   }))
 
@@ -360,6 +375,7 @@ testOnNode27Plus('loose hoisted package map allows undeclared hoisted dependenci
     '@pnpm.e2e/pkg-with-1-dep@100.0.0',
   ], testDefaults({
     fastUnpack: false,
+    nodeExperimentalPackageMap: true,
     nodeLinker: 'hoisted',
     nodePackageMapType: 'loose',
   }))
@@ -1476,7 +1492,7 @@ test('installing with no symlinks with PnP', async () => {
     })
   )
 
-  expect([...fs.readdirSync(path.resolve('node_modules')).sort()]).toStrictEqual(['.bin', '.modules.yaml', '.package-map.json', '.pnpm'])
+  expect([...fs.readdirSync(path.resolve('node_modules')).sort()]).toStrictEqual(['.bin', '.modules.yaml', '.pnpm'])
   expect([...fs.readdirSync(path.resolve('node_modules/.pnpm/rimraf@2.7.1/node_modules'))]).toStrictEqual(['rimraf'])
 
   expect(project.readCurrentLockfile()).toBeTruthy()
